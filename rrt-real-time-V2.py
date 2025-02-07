@@ -30,9 +30,10 @@ from tf.transformations import euler_from_quaternion
 
 realCar = False
 infinity = float('inf')
-DEPTH = 25
+DEPTH = 50
 TEMPERATURE = 0.95
-ITERATION = 2000
+ITERATION = 5000
+car_size = 0.5
 
 
 if(realCar):
@@ -96,7 +97,7 @@ class RRT(object):
 
         # class attributes
         # TODO: maybe create your occupancy grid here
-        self.L = 0.5
+        self.L = 0.3
 
         self.gauche = 0
         self.droite = 0
@@ -111,9 +112,14 @@ class RRT(object):
         self.pose = Point()
         self.orientation = 0
 
+        self.t = time.time()
+
         self.waypoints = self.parse_waypoint(file_path)
 
-        self.t = time.time()
+        self.targetPoint= self.waypoints[0]
+        self.targetPointIndex = 0
+
+        
     
     def parse_waypoint(self, file_path):
         waypoints = []
@@ -132,28 +138,11 @@ class RRT(object):
                     waypoints.append(point)
                 else:
                     lastPoint = waypoints[-1]
-                    if(self.dist(lastPoint, point) > 10):
+                    if(dist((lastPoint.x, lastPoint.y), (point.x, point.y)) > 5):
                         waypoints.append(point)
         return waypoints
 
-    def isAhead(self, point, carPose):
-        
-        directionAngle = self.orientation
-
-        directionVectorX = -math.sin(directionAngle)
-        directionVectorY = math.cos(directionAngle)
-
-        directionVectorX = math.cos(directionAngle)
-        directionVectorY = math.sin(directionAngle)
-
-        vectX = point.x -carPose.position.x
-        vectY = point.y -carPose.position.y
-        
-        dotProduct = vectX * directionVectorX + vectY * directionVectorY
-
-        return dotProduct > 0
     
-
     def grid_pose_from_world_pose(self, point):
         i,j = (point.y - self.occupancy_grid.info.origin.position.y)/self.occupancy_grid.info.resolution, (point.x - self.occupancy_grid.info.origin.position.x)/self.occupancy_grid.info.resolution 
         return int(i * self.occupancy_grid.info.width + j)
@@ -194,8 +183,8 @@ class RRT(object):
                     self.local_grid.data[cell] = 100
                 
                 
-                end_point = self.find_next_waypoint()
-                self.find_shortest_path((self.pose.x, self.pose.y), end_point, 0)
+                self.next_waypoint()
+                self.find_shortest_path((self.pose.x, self.pose.y), (self.targetPoint.x, self.targetPoint.y), 0)
 
     def cell_from_dist(self, dist, angle): 
         '''Prend une distance à la voiture et un angle de direction et renvoie la cellule sur la carte correspondant à ce point'''
@@ -209,24 +198,18 @@ class RRT(object):
         return self.grid_pose_from_world_pose(point)
     
     
-    def find_next_waypoint(self):
-        inf_dist_over_L = 1000
-        wayPoint = None
-
-        for waypoint in self.waypoint:
-            
-            if(self.isAhead(waypoint, self.pose)):
+    def next_waypoint(self):
                 
-                d = self.dist(self.pose.position, waypoint)
+        d = dist((self.pose.x, self.pose.y), (self.targetPoint.x, self.targetPoint.y))
 
-                if(d > self.L and d < inf_dist_over_L):
-                    inf_dist_over_L = d
-                    wayPoint1 = waypoint.x, waypoint.y
+        if(d < self.L*10):
+            self.targetPointIndex = (self.targetPointIndex + 1)
+            if self.targetPointIndex >= len(self.waypoints):
+                self.targetPointIndex = 2
+            self.targetPoint = self.waypoints[self.targetPointIndex]
+        
 
-                if(d < self.L and d > sup_dist_under_L):
-                    sup_dist_under_L = d
-                    wayPoint2= waypoint.x, waypoint.y
-
+        
     def erase_local_grid(self):
         self.local_grid.data = [0 for i in range(len(self.occupancy_grid.data))]
 
@@ -235,26 +218,34 @@ class RRT(object):
             return 
     
         self.occupancy_grid = map_msg
+        self.occupancy_grid.data = list(self.occupancy_grid.data)
         print("map caracteristics : width", self.occupancy_grid.info.width, " height : ", self.occupancy_grid.info.height, " resolution : ", self.occupancy_grid.info.resolution)
         self.local_grid.data = [0 for i in range(len(self.occupancy_grid.data))]
-        for p in self.occupancy_grid.data:
-            if(p):
-                print(p)
         time.sleep(1)
 
         self.find_map_corner()
+        self.thicken_map()
 
         self.have_launched_the_map = True
         
-        '''
-        self.find_shortest_path((0,0), (3,6), 0)
-        self.find_shortest_path((3,6), (-3.5,6), 1000)
-        self.find_shortest_path((-3.5,6), (0,0), 2000)
-        '''
+    def thicken_map(self):
+        '''On épaissit les murs de la cartes pour que le robot ne se prenne pas dedans'''
+        grid = self.occupancy_grid.data
+        w = self.occupancy_grid.info.width
+        h = len(grid) // w
 
-        msg = String()
-        msg.data = "RRT"
-        self.scheduler.publish(msg)
+        thickness = int(car_size // self.occupancy_grid.info.resolution)
+
+        for i, valeur in enumerate(grid):
+            if valeur == 100:
+                ligne, colonne = divmod(i, w)
+
+                for j in range(-thickness,thickness):
+                    for k in range(-thickness,thickness):
+                        index = (ligne + j) * w + colonne + k
+                        if index >= 0 and index < len(grid):
+                            grid[index] = 95
+
 
     def find_shortest_path(self, start_point, end_point, START_ID):
         self.is_runing = True
@@ -291,7 +282,7 @@ class RRT(object):
                     TEMPERATURE = 0.999
             
 
-            printMarker(0,0,(0,1,1), 12345678, self.marker_pub)
+            #printMarker(0,0,(0,1,1), 12345678, self.marker_pub)
             printMarker(goal_x,goal_y,(0,1,1), 123456789, self.marker_pub)
             #print(len(tree))
             sample_point = self.sample(TEMPERATURE, goal_x, goal_y)
@@ -321,7 +312,8 @@ class RRT(object):
         print("origin_node : ", origin_node.x, origin_node.y, origin_node.x_grid, origin_node.y_grid)
         print("over", best_path_length)
         
-        self.way_point_publisher.publish(self.path2msg(path))
+        if best_path_length != infinity:
+            self.way_point_publisher.publish(self.path2msg(path))
         self.is_runing = False
 
 

@@ -12,11 +12,12 @@ import numpy as np
 import math
 import csv
 from std_msgs.msg import String
+from copy import copy
 
 # TODO: import ROS msg types and libraries
 
 p = 0.5
-max_velocity = 0.5
+max_velocity = 4
 
 file_path = '/home/romeo/rcws/logs/wp-2025-01-17-23-01-38.csv'
 
@@ -56,7 +57,7 @@ class PurePursuit(object):
         x,y = 0,0
         current_word = ''
 
-        self.waypoint = []
+        new_waypoint = []
 
         for letter in s.data:
             if letter == '(':
@@ -69,13 +70,15 @@ class PurePursuit(object):
                 point.x = x
                 point.y = y
 
-                self.waypoint.append(point)
+                new_waypoint.append(point)
 
             elif letter == ',':
                 x = float(current_word)
                 current_word = ''
             else:
                 current_word += letter
+
+        self.waypoint = new_waypoint
         
     
     def parse_waypoint(self, file_path):
@@ -218,7 +221,7 @@ class PurePursuit(object):
         return dotProduct > 0
 
     def find_waypoint(self, pose):
-        inf_dist_over_L = 1000
+        inf_dist_over_L = float('inf')
         wayPoint2 = None
 
         sup_dist_under_L = 0
@@ -230,8 +233,6 @@ class PurePursuit(object):
                 
                 d = self.dist(pose.position, waypoint)
 
-                
-
                 if(d > self.L and d < inf_dist_over_L):
                     inf_dist_over_L = d
                     wayPoint1 = waypoint.x, waypoint.y
@@ -240,8 +241,6 @@ class PurePursuit(object):
                     sup_dist_under_L = d
                     wayPoint2= waypoint.x, waypoint.y
         
-        
-
         if(wayPoint1 != None and wayPoint2 != None):
 
             rospy.loginfo_throttle(0.5, str(wayPoint1[0]) + str(wayPoint1[1]))
@@ -265,6 +264,7 @@ class PurePursuit(object):
         else:
             #print("on a rien trouvé ca n'a aucun sens")
             return self.waypoint[0]
+
 
     def dist(self, pose1, pose2):
         x1, y1 = pose1.x, pose1.y
